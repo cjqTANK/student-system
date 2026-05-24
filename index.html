@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>学生信息统计系统</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none; /* 避免移动端长按菜单，不影响输入框 */
+        }
+        body {
+            background: #1e2a3a;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px 12px 40px;
+            color: #ecf0f1;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .card {
+            background: #2c3e50;
+            border-radius: 24px;
+            padding: 20px 18px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            transition: 0.2s;
+        }
+        .card h2, .card h3 {
+            margin-top: 0;
+            color: #f1c40f;
+            border-left: 5px solid #f1c40f;
+            padding-left: 12px;
+        }
+        button, .btn-like {
+            background: #3498db;
+            border: none;
+            color: white;
+            padding: 10px 18px;
+            border-radius: 40px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 6px 6px 0 0;
+            transition: 0.1s linear;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        button:active {
+            transform: scale(0.97);
+            background: #2980b9;
+        }
+        .btn-danger {
+            background: #e67e22;
+        }
+        .btn-danger:active {
+            background: #d35400;
+        }
+        .btn-warning {
+            background: #95a5a6;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px 14px;
+            margin: 8px 0 12px;
+            border-radius: 28px;
+            border: 1px solid #7f8c8d;
+            background: #ecf0f1;
+            font-size: 1rem;
+        }
+        label {
+            font-weight: 600;
+            display: block;
+            margin-top: 6px;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #34495e;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 8px 6px;
+            text-align: left;
+            border-bottom: 1px solid #3e5a6b;
+        }
+        th {
+            background: #1e2f3a;
+            color: #f1c40f;
+        }
+        .info-text {
+            background: #1e2f3a;
+            padding: 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-top: 12px;
+        }
+        .flex-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 15px 0 5px;
+        }
+        .status-bar {
+            background: #00000066;
+            border-radius: 30px;
+            padding: 8px 12px;
+            margin-bottom: 15px;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+        hr {
+            border-color: #3a5468;
+        }
+        @media (max-width: 550px) {
+            button { padding: 8px 14px; font-size: 0.9rem; }
+            .card { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <!-- 动态内容会渲染到这里 -->
+</div>
+
+<script>
+    // ---------- 数据模型 (localStorage 持久化) ----------
+    let appState = {
+        loggedIn: false,
+        registered: false,
+        username: '',
+        password: '',
+        students: [],        // 学生姓名数组 ["张三","李四"]
+        projects: [],        // 项目名称数组 ["数学","语文"]
+        scores: [],          // 二维数组 scores[学生索引][项目索引] = 分数
+        needSave: true
+    };
+
+    // 加载本地数据
+    function loadData() {
+        const raw = localStorage.getItem('StudentSystem');
+        if (raw) {
+            try {
+                const data = JSON.parse(raw);
+                appState.loggedIn = data.loggedIn || false;
+                appState.registered = data.registered || false;
+                appState.username = data.username || '';
+                appState.password = data.password || '';
+                appState.students = data.students || [];
+                appState.projects = data.projects || [];
+                appState.scores = data.scores || [];
+                // 保证 scores 维度正确
+                if (appState.scores.length !== appState.students.length) {
+                    appState.scores = Array(appState.students.length).fill().map(() => Array(appState.projects.length).fill(0));
+                }
+                for (let i = 0; i < appState.scores.length; i++) {
+                    if (!appState.scores[i]) appState.scores[i] = [];
+                    while (appState.scores[i].length < appState.projects.length) appState.scores[i].push(0);
+                }
+            } catch(e) { console.warn(e); }
+        } else {
+            // 初始演示数据 (可选)
+            appState.registered = false;
+            appState.loggedIn = false;
+        }
+    }
+
+    function saveData() {
+        const toSave = {
+            loggedIn: appState.loggedIn,
+            registered: appState.registered,
+            username: appState.username,
+            password: appState.password,
+            students: appState.students,
+            projects: appState.projects,
+            scores: appState.scores
+        };
+        localStorage.setItem('StudentSystem', JSON.stringify(toSave));
+    }
+
+    // 辅助函数
+    function ensureScoreArray() {
+        let studentCount = appState.students.length;
+        let projectCount = appState.projects.length;
+        if (appState.scores.length !== studentCount) {
+            let newScores = [];
+            for (let i = 0; i < studentCount; i++) {
+                let row = (appState.scores[i] && appState.scores[i].slice) ? appState.scores[i].slice() : [];
+                while (row.length < projectCount) row.push(0);
+                newScores.push(row);
+            }
+            appState.scores = newScores;
+        } else {
+            for (let i = 0; i < studentCount; i++) {
+                if (!appState.scores[i]) appState.scores[i] = [];
+                while (appState.scores[i].length < projectCount) appState.scores[i].push(0);
+            }
+        }
+    }
+
+    // 查找项目索引
+    function findProjectIndex(name) {
+        return appState.projects.findIndex(p => p === name);
+    }
+    // 查找学生索引
+    function findStudentIndex(name) {
+        return appState.students.findIndex(s => s === name);
+    }
+
+    // 渲染主界面 (路由)
+    function render() {
+        const appDiv = document.getElementById('app');
+        if (!appDiv) return;
+        if (!appState.registered) {
+            renderRegister(appDiv);
+        } else if (!appState.loggedIn) {
+            renderLogin(appDiv);
+        } else {
+            renderMainMenu(appDiv);
+        }
+    }
+
+    // 注册页面
+    function renderRegister(container) {
+        container.innerHTML = `
+            <div class="card">
+                <h2>📝 注册账号</h2>
+                <label>用户名</label>
+                <input type="text" id="regUser" placeholder="用户名" autocomplete="off">
+                <label>密码</label>
+                <input type="password" id="regPass" placeholder="密码">
+                <div class="flex-buttons">
+                    <button id="doRegBtn">注册</button>
+                    <button id="toLoginBtn" class="btn-warning">已有账号？去登录</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('doRegBtn')?.addEventListener('click', () => {
+            const user = document.getElementById('regUser').value.trim();
+            const pass = document.getElementById('regPass').value.trim();
+            if (user === '' || pass === '') {
+                alert("用户名/密码不能为空");
+                return;
+            }
+            appState.username = user;
+            appState.password = pass;
+            appState.registered = true;
+            appState.loggedIn = false;
+            // 重置学生数据（新用户清空旧数据）
+            appState.students = [];
+            appState.projects = [];
+            appState.scores = [];
+            saveData();
+            render();
+        });
+        document.getElementById('toLoginBtn')?.addEventListener('click', () => {
+            if (appState.registered) {
+                render();
+            } else {
+                alert("请先注册");
+            }
+        });
+    }
+
+    // 登录页面
+    function renderLogin(container) {
+        container.innerHTML = `
+            <div class="card">
+                <h2>🔐 登录</h2>
+                <label>用户名</label>
+                <input type="text" id="loginUser" placeholder="用户名" autocomplete="off">
+                <label>密码</label>
+                <input type="password" id="loginPass" placeholder="密码">
+                <div class="flex-buttons">
+                    <button id="loginBtn">登录</button>
+                </div>
+                <div class="info-text">💡 提示：若忘记密码只能清除浏览器数据重新注册。</div>
+            </div>
+        `;
+        document.getElementById('loginBtn')?.addEventListener('click', () => {
+            const user = document.getElementById('loginUser').value.trim();
+            const pass = document.getElementById('loginPass').value.trim();
+            if (user === appState.username && pass === appState.password) {
+                appState.loggedIn = true;
+                saveData();
+                render();
+            } else {
+                alert("用户名或密码错误");
+            }
+        });
+    }
+
+    // 主菜单 (核心功能)
+    function renderMainMenu(container) {
+        const studentCount = appState.students.length;
+        const projectCount = appState.projects.length;
+        ensureScoreArray();
+        let studentNamesHtml = studentCount === 0 ? '<span style="color:#e67e22;">暂无学生，请先创建档案</span>' : `已有 ${studentCount} 名学生，${projectCount} 个信息项目`;
+        
+        container.innerHTML = `
+            <div class="card">
+                <h2>📚 学生信息统计系统</h2>
+                <div class="status-bar">欢迎，${escapeHtml(appState.username)} | ${studentNamesHtml}</div>
+                <div class="flex-buttons">
+                    <button id="createStuBtn">📇 创建学生档案</button>
+                    <button id="addProjBtn">➕ 添加信息项目</button>
+                    <button id="searchBtn">🔍 查找信息</button>
+                    <button id="showTableBtn">📊 显示总表</button>
+                    <button id="modifyBtn">✏️ 修改信息</button>
+                    <button id="deleteBtn">🗑️ 删除信息</button>
+                    <button id="statsBtn">📈 统计排名</button>
+                    <button id="logoutBtn" class="btn-danger">🚪 退出登录</button>
+                </div>
+            </div>
+        `;
+        // 事件绑定
+        document.getElementById('createStuBtn')?.addEventListener('click', createStudentDialog);
+        document.getElementById('addProjBtn')?.addEventListener('click', addProjectDialog);
+        document.getElementById('searchBtn')?.addEventListener('click', searchDialog);
+        document.getElementById('showTableBtn')?.addEventListener('click', showTableDialog);
+        document.getElementById('modifyBtn')?.addEventListener('click', modifyDialog);
+        document.getElementById('deleteBtn')?.addEventListener('click', deleteDialog);
+        document.getElementById('statsBtn')?.addEventListener('click', statsDialog);
+        document.getElementById('logoutBtn')?.addEventListener('click', () => {
+            appState.loggedIn = false;
+            saveData();
+            render();
+        });
+    }
+
+    // 创建学生档案
+    function createStudentDialog() {
+        let count = prompt("请输入学生人数 (1-200):", "3");
+        if (!count) return;
+        let num = parseInt(count);
+        if (isNaN(num) || num < 1 || num > 200) { alert("人数无效"); return; }
+        let names = [];
+        for (let i = 1; i <= num; i++) {
+            let name = prompt(`请输入第 ${i} 位学生姓名:`, `学生${i}`);
+            if (!name || name.trim() === "") { alert("姓名不能为空，操作取消"); return; }
+            names.push(name.trim());
+        }
+        appState.students = names;
+        // 重置分数矩阵
+        appState.scores = Array(names.length).fill().map(() => Array(appState.projects.length).fill(0));
+        ensureScoreArray();
+        saveData();
+        alert(`成功创建 ${num} 名学生档案！`);
+        render();
+    }
+
+    // 添加信息项目（成绩/科目）
+    function addProjectDialog() {
+        if (appState.students.length === 0) {
+            alert("请先创建学生档案！");
+            return;
+        }
+        let projName = prompt("请输入信息项目名称（例如：数学成绩）:", "新项目");
+        if (!projName || projName.trim() === "") return;
+        // 检查重复
+        if (appState.projects.includes(projName.trim())) {
+            alert("项目已存在！");
+            return;
+        }
+        appState.projects.push(projName.trim());
+        // 为每个学生增加这一列分数
+        for (let i = 0; i < appState.students.length; i++) {
+            if (!appState.scores[i]) appState.scores[i] = [];
+            appState.scores[i].push(0);
+        }
+        // 输入每个学生的分数
+        for (let i = 0; i < appState.students.length; i++) {
+            let val = prompt(`请输入 ${appState.students[i]} 的 ${projName} 成绩:`, "0");
+            let score = parseInt(val);
+            if (isNaN(score)) score = 0;
+            appState.scores[i][appState.projects.length-1] = score;
+        }
+        ensureScoreArray();
+        saveData();
+        alert(`项目 "${projName}" 添加成功！`);
+        render();
+    }
+
+    // 查找信息 (按项目 / 按学生)
+    function searchDialog() {
+        if (appState.students.length === 0) { alert("没有学生数据"); return; }
+        let type = prompt("查找方式：输入 1 按项目查找，输入 2 按学生查找", "1");
+        if (type === "1") {
+            if (appState.projects.length === 0) { alert("还没有任何项目"); return; }
+            let projList = appState.projects.join("，");
+            let projName = prompt(`请输入项目名称 (已有: ${projList}):`);
+            if (!projName) return;
+            let idx = findProjectIndex(projName.trim());
+            if (idx === -1) { alert("项目不存在"); return; }
+            let msg = `【${projName}】成绩列表:\n`;
+            for (let i=0; i<appState.students.length; i++) {
+                msg += `${appState.students[i]} : ${appState.scores[i][idx]}\n`;
+            }
+            alert(msg);
+        } else if (type === "2") {
+            let stuName = prompt(`请输入学生姓名 (已有: ${appState.students.join(", ")}):`);
+            if (!stuName) return;
+            let stuIdx = findStudentIndex(stuName.trim());
+            if (stuIdx === -1) { alert("学生不存在"); return; }
+            let msg = `${appState.students[stuIdx]} 的成绩:\n`;
+            for (let j=0; j<appState.projects.length; j++) {
+                msg += `${appState.projects[j]} : ${appState.scores[stuIdx][j]}\n`;
+            }
+            alert(msg);
+        } else {
+            alert("无效选项");
+        }
+    }
+
+    // 显示完整表格（弹窗展示或生成新页面）
+    function showTableDialog() {
+        if (appState.students.length === 0 || appState.projects.length === 0) {
+            alert("没有足够数据生成表格，请先创建学生档案和项目");
+            return;
+        }
+        let headers = ["学生姓名", ...appState.projects];
+        let rows = [];
+        for (let i=0; i<appState.students.length; i++) {
+            let row = [appState.students[i]];
+            for (let j=0; j<appState.projects.length; j++) {
+                row.push(appState.scores[i][j]);
+            }
+            rows.push(row);
+        }
+        let tableHtml = "<table border='1' style='border-collapse:collapse; width:100%'><tr>";
+        headers.forEach(h => tableHtml += `<th>${escapeHtml(h)}</th>`);
+        tableHtml += "</tr>";
+        rows.forEach(row => {
+            tableHtml += "<tr>";
+            row.forEach(cell => tableHtml += `<td>${escapeHtml(String(cell))}</td>`);
+            tableHtml += "</tr>";
+        });
+        tableHtml += "</table><br/><button id='closeTableBtn'>关闭</button>";
+        let win = window.open();
+        win.document.write(`
+            <html><head><title>学生信息总表</title><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;background:#1e2a3a;color:#eee;} table{background:#2c3e50;} th{background:#f1c40f;color:#000;}</style></head><body>${tableHtml}</body></html>
+        `);
+        win.document.close();
+    }
+
+    // 修改信息
+    function modifyDialog() {
+        if (appState.students.length===0 || appState.projects.length===0) {
+            alert("没有数据可修改");
+            return;
+        }
+        let opt = prompt("修改内容: 1-修改学生成绩  2-修改项目名称", "1");
+        if (opt === "1") {
+            let stuName = prompt("学生姓名:", "");
+            let stuIdx = findStudentIndex(stuName);
+            if (stuIdx === -1) { alert("学生不存在"); return; }
+            let projName = prompt("项目名称:", "");
+            let projIdx = findProjectIndex(projName);
+            if (projIdx === -1) { alert("项目不存在"); return; }
+            let newScore = prompt(`当前成绩: ${appState.scores[stuIdx][projIdx]}，输入新成绩:`, "");
+            let scoreVal = parseInt(newScore);
+            if (isNaN(scoreVal)) { alert("成绩无效"); return; }
+            appState.scores[stuIdx][projIdx] = scoreVal;
+            saveData();
+            alert("修改成功");
+        } else if (opt === "2") {
+            let oldName = prompt("要修改的项目名称:", "");
+            let idx = findProjectIndex(oldName);
+            if (idx === -1) { alert("项目不存在"); return; }
+            let newName = prompt("新项目名称:", "");
+            if (!newName) return;
+            appState.projects[idx] = newName.trim();
+            saveData();
+            alert("项目名称已修改");
+        } else {
+            alert("无效选项");
+        }
+        render();
+    }
+
+    // 删除信息 (学生 或 项目)
+    function deleteDialog() {
+        if (appState.students.length===0 && appState.projects.length===0) {
+            alert("无数据可删除");
+            return;
+        }
+        let opt = prompt("删除类型: 1-删除学生  2-删除项目", "1");
+        if (opt === "1") {
+            let stuName = prompt("要删除的学生姓名:", "");
+            let idx = findStudentIndex(stuName);
+            if (idx === -1) { alert("学生不存在"); return; }
+            if (confirm(`确定删除学生 ${stuName} 及其所有成绩吗？`)) {
+                appState.students.splice(idx,1);
+                appState.scores.splice(idx,1);
+                saveData();
+                alert("删除成功");
+                render();
+            }
+        } else if (opt === "2") {
+            let projName = prompt("要删除的项目名称:", "");
+            let idx = findProjectIndex(projName);
+            if (idx === -1) { alert("项目不存在"); return; }
+            if (confirm(`确定删除项目 ${projName} 及所有学生的此项成绩吗？`)) {
+                appState.projects.splice(idx,1);
+                for (let i=0; i<appState.scores.length; i++) {
+                    appState.scores[i].splice(idx,1);
+                }
+                saveData();
+                alert("删除成功");
+                render();
+            }
+        } else { alert("无效"); }
+    }
+
+    // 统计排名
+    function statsDialog() {
+        if (appState.students.length===0 || appState.projects.length===0) {
+            alert("没有数据，无法统计");
+            return;
+        }
+        let projName = prompt(`请输入要统计排名的项目名称 (${appState.projects.join(", ")}):`, "");
+        let projIdx = findProjectIndex(projName);
+        if (projIdx === -1) { alert("项目不存在"); return; }
+        let scoresList = [];
+        for (let i=0; i<appState.students.length; i++) {
+            scoresList.push({ name: appState.students[i], score: appState.scores[i][projIdx] });
+        }
+        scoresList.sort((a,b)=>b.score - a.score);
+        let total = scoresList.reduce((sum,item)=>sum+item.score,0);
+        let avg = (total / appState.students.length).toFixed(2);
+        let maxS = scoresList[0].score;
+        let minS = scoresList[scoresList.length-1].score;
+        let msg = `📊 【${projName}】统计结果\n总分: ${total}\n平均分: ${avg}\n最高分: ${maxS}\n最低分: ${minS}\n\n排名(从高到低):\n`;
+        for (let i=0; i<scoresList.length; i++) {
+            msg += `${i+1}. ${scoresList[i].name} : ${scoresList[i].score}\n`;
+        }
+        alert(msg);
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+            return c;
+        });
+    }
+
+    // 初始化
+    loadData();
+    render();
+</script>
+</body>
+</html>
